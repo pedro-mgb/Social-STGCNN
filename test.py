@@ -14,6 +14,9 @@ from metrics import *
 from model import social_stgcnn
 import copy
 
+parser = argparse.ArgumentParser()
+parser.add_argument('--num_samples', default=20, type=int, help='Number of samples to generate, per trajectory')
+
 def test(KSTEPS=20):
     global loader_test,model
     model.eval()
@@ -126,8 +129,10 @@ def test(KSTEPS=20):
     return ade_,fde_,raw_data_dict
 
 
+args = parser.parse_args()
+
 paths = ['./checkpoint/*social-stgcnn*']
-KSTEPS=20
+KSTEPS=args.num_samples
 
 print("*"*50)
 print('Number of samples:',KSTEPS)
@@ -188,7 +193,7 @@ for feta in range(len(paths)):
         ade_ =999999
         fde_ =999999
         print("Testing ....")
-        ad,fd,raw_data_dic_= test()
+        ad,fd,raw_data_dic_= test(KSTEPS)
         ade_= min(ade_,ad)
         fde_ =min(fde_,fd)
         ade_ls.append(ade_)
