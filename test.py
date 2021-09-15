@@ -1,21 +1,21 @@
-import os
-import math
-import sys
-import torch
-import numpy as np
-from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
 import pickle
 import argparse
 import glob
 import torch.distributions.multivariate_normal as torchdist
-from utils import * 
-from metrics import * 
+
+from data import TrajectoryDataset
+from metrics import *
 from model import social_stgcnn
 import copy
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--num_samples', default=20, type=int, help='Number of samples to generate, per trajectory')
+parser.add_argument('--trajnetpp', action='store_true', help='Use data in Trajnet++ format')
+parser.add_argument('--no_partial_trajectories', action='store_true',
+                    help='If specified with --trajnetpp flag, will not consider partial trajectories for neighbours '
+                         '(to avoid having to deal with NaNs).')
+parser.add_argument('--data_location', default=None, type=str,
+                    help='Path to the data to evaluation. By default will evaluate the ETH/UCY models.')
 
 def test(KSTEPS=20):
     global loader_test,model
@@ -179,7 +179,7 @@ for feta in range(len(paths)):
                 dset_test,
                 batch_size=1,#This is irrelative to the args batch size parameter
                 shuffle =False,
-                num_workers=1)
+                num_workers=0)
 
 
 
