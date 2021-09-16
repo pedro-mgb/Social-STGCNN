@@ -3,7 +3,7 @@ import argparse
 import glob
 import torch.distributions.multivariate_normal as torchdist
 
-from data import TrajectoryDataset
+from data import TrajectoryDataset, DatasetTrajnetPP
 from metrics import *
 from model import social_stgcnn
 import copy
@@ -14,11 +14,17 @@ parser.add_argument('--trajnetpp', action='store_true', help='Use data in Trajne
 parser.add_argument('--no_partial_trajectories', action='store_true',
                     help='If specified with --trajnetpp flag, will not consider partial trajectories for neighbours '
                          '(to avoid having to deal with NaNs).')
+'''
 parser.add_argument('--data_location', default=None, type=str,
-                    help='Path to the data to evaluation. By default will evaluate the ETH/UCY models.')
+                    help='Path to the data to evaluation. By default will evaluate the ETH/UCY models. '
+                         'Should be mandatory sent when using --trajnetpp flag. ')
+'''
+parser.add_argument('--model_tag', default=None, type=str,
+                    help='Path to the model evaluation. By default will evaluate the ETH/UCY models. Should be '
+                         'mandatory sent when using --trajnetpp flag.')
 
 def test(KSTEPS=20):
-    global loader_test,model
+    global loader_test,model,trajnetpp
     model.eval()
     ade_bigls = []
     fde_bigls = []
@@ -91,6 +97,9 @@ def test(KSTEPS=20):
         raw_data_dict[step]['trgt'] = copy.deepcopy(V_y_rel_to_abs)
         raw_data_dict[step]['pred'] = []
 
+        if trajnetpp:
+            num_of_objs = 1  # just primary pedestrian
+
         for n in range(num_of_objs):
             ade_ls[n]=[]
             fde_ls[n]=[]
@@ -130,8 +139,14 @@ def test(KSTEPS=20):
 
 
 args = parser.parse_args()
+trajnetpp = args.trajnetpp
 
-paths = ['./checkpoint/*social-stgcnn*']
+if args.trajnetpp:
+    if args.model_tag is None:
+        raise Exception('For --trajnetpp, --model_tag must be supplied.')
+    paths = ['checkpoint/' + args.model_tag]
+else:
+    paths = ['./checkpoint/*social-stgcnn*']
 KSTEPS=args.num_samples
 
 print("*"*50)
@@ -167,13 +182,24 @@ for feta in range(len(paths)):
         #Data prep     
         obs_seq_len = args.obs_seq_len
         pred_seq_len = args.pred_seq_len
-        data_set = './datasets/'+args.dataset+'/'
+        if trajnetpp and 'trajnetpp' in args.dataset:
+            if '21' in args.dataset:
+                data_set = 'datasets_in_trajnetpp21/'
+            elif '11' in args.dataset:
+                data_set = 'datasets_in_trajnetpp11/'
+            else:
+                raise Exception(f'Dataset in {args.dataset} was not found')
+            dset_test = DatasetTrajnetPP(data_set + 'test/', obs_len=obs_seq_len, pred_len=pred_seq_len,
+                                         norm_lap_matr=True,
+                                         consider_partial_trajectories=not args.no_partial_trajectories)
+        else:
+            data_set = './datasets/'+args.dataset+'/'
 
-        dset_test = TrajectoryDataset(
-                data_set+'test/',
-                obs_len=obs_seq_len,
-                pred_len=pred_seq_len,
-                skip=1,norm_lap_matr=True)
+            dset_test = TrajectoryDataset(
+                    data_set+'test/',
+                    obs_len=obs_seq_len,
+                    pred_len=pred_seq_len,
+                    skip=1,norm_lap_matr=True)
 
         loader_test = DataLoader(
                 dset_test,
