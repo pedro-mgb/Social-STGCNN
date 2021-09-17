@@ -20,11 +20,13 @@ parser.add_argument('--obs_seq_len', type=int, default=8)
 parser.add_argument('--pred_seq_len', type=int, default=12)
 parser.add_argument('--dataset', default='trajnetpp21',
                     choices=['eth', 'hotel', 'univ', 'zara1', 'zara2', 'trajnetpp21', 'trajnetpp11'])
-parser.add_argument('--no_partial_trajectories', action='store_true',
-                    help='If specified for Trajnet++ data, will not consider partial trajectories for neighbours '
+parser.add_argument('--use_partial_trajectories', action='store_true',
+                    help='If specified for Trajnet++ data, will consider partial trajectories for neighbours '
                          '(to avoid having to deal with NaNs).')
 parser.add_argument('--primary_ped_only', action='store_true',
                     help='If specific for Trajnet++ data, will compute the training loss only for primary pedestrians.')
+parser.add_argument('--no_val', action='store_true',
+                    help='Do not use validation set. Model will be saved according to the minimum training loss')
 
 # Training specifc parameters
 parser.add_argument('--batch_size', type=int, default=128,
@@ -69,34 +71,42 @@ else:
     data_set = './datasets/' + args.dataset + '/'
 obs_seq_len = args.obs_seq_len
 pred_seq_len = args.pred_seq_len
+primary_ped_only = args.primary_ped_only
 
 if trajnetpp:
     dset_train = DatasetTrajnetPP(data_set + 'train/', obs_len=obs_seq_len, pred_len=pred_seq_len, norm_lap_matr=True,
-                                  consider_partial_trajectories=not args.no_partial_trajectories)
+                                  consider_partial_trajectories=args.use_partial_trajectories)
     dset_val = DatasetTrajnetPP(data_set + 'val/', obs_len=obs_seq_len, pred_len=pred_seq_len, norm_lap_matr=True,
-                                consider_partial_trajectories=not args.no_partial_trajectories)
+                                consider_partial_trajectories=args.use_partial_trajectories)
 else:
     dset_train = TrajectoryDataset(
         data_set + 'train/',
         obs_len=obs_seq_len,
         pred_len=pred_seq_len,
         skip=1, norm_lap_matr=True)
-    dset_val = TrajectoryDataset(
-        data_set + 'val/',
-        obs_len=obs_seq_len,
-        pred_len=pred_seq_len,
-        skip=1, norm_lap_matr=True)
+    if args.no_val:
+        dset_val = None
+    else:
+        dset_val = TrajectoryDataset(
+            data_set + 'val/',
+            obs_len=obs_seq_len,
+            pred_len=pred_seq_len,
+            skip=1, norm_lap_matr=True)
 
 loader_train = DataLoader(
     dset_train,
     batch_size=1,  # This is irrelative to the args batch size parameter
     shuffle=True,
     num_workers=0)
-loader_val = DataLoader(
-    dset_val,
-    batch_size=1,  # This is irrelative to the args batch size parameter
-    shuffle=False,
-    num_workers=0)
+
+if args.no_val:
+    loader_val = loader_train
+else:
+    loader_val = DataLoader(
+        dset_val,
+        batch_size=1,  # This is irrelative to the args batch size parameter
+        shuffle=False,
+        num_workers=0)
 
 # Defining the model
 
@@ -128,7 +138,7 @@ constant_metrics = {'min_val_epoch': -1, 'min_val_loss': 9999999999999999}
 
 
 def train(epoch):
-    global metrics, loader_train
+    global metrics, loader_train, primary_ped_only, trajnetpp
     model.train()
     loss_batch = 0
     batch_count = 0
@@ -151,13 +161,12 @@ def train(epoch):
         V_obs_tmp = V_obs.permute(0, 3, 1, 2)
 
         V_pred, _ = model(V_obs_tmp, A_obs.squeeze())
-        # check if meant to only consider primary pedestrian
-
         V_pred = V_pred.permute(0, 2, 3, 1)
-
         V_tr = V_tr.squeeze()
         A_tr = A_tr.squeeze()
         V_pred = V_pred.squeeze()
+        if primary_ped_only and trajnetpp:  # for Trajnet++, only get
+            V_pred, V_tr = V_pred[:, 0:1], V_tr[:, 0:1]
 
         if batch_count % args.batch_size != 0 and cnt != turn_point:
             l = graph_loss(V_pred, V_tr)
@@ -184,7 +193,7 @@ def train(epoch):
 
 
 def vald(epoch):
-    global metrics, loader_val, constant_metrics
+    global metrics, loader_val, constant_metrics, primary_ped_only, trajnetpp
     model.eval()
     loss_batch = 0
     batch_count = 0
@@ -203,12 +212,12 @@ def vald(epoch):
         V_obs_tmp = V_obs.permute(0, 3, 1, 2)
 
         V_pred, _ = model(V_obs_tmp, A_obs.squeeze())
-
         V_pred = V_pred.permute(0, 2, 3, 1)
-
         V_tr = V_tr.squeeze()
         A_tr = A_tr.squeeze()
         V_pred = V_pred.squeeze()
+        if primary_ped_only and trajnetpp:  # for Trajnet++, only get
+            V_pred, V_tr = V_pred[:, 0:1], V_tr[:, 0:1]
 
         if batch_count % args.batch_size != 0 and cnt != turn_point:
             l = graph_loss(V_pred, V_tr)

@@ -11,8 +11,8 @@ import copy
 parser = argparse.ArgumentParser()
 parser.add_argument('--num_samples', default=20, type=int, help='Number of samples to generate, per trajectory')
 parser.add_argument('--trajnetpp', action='store_true', help='Use data in Trajnet++ format')
-parser.add_argument('--no_partial_trajectories', action='store_true',
-                    help='If specified with --trajnetpp flag, will not consider partial trajectories for neighbours '
+parser.add_argument('--use_partial_trajectories', action='store_true',
+                    help='If specified with --trajnetpp flag, will consider partial trajectories for neighbours '
                          '(to avoid having to deal with NaNs).')
 '''
 parser.add_argument('--data_location', default=None, type=str,
@@ -191,7 +191,7 @@ for feta in range(len(paths)):
                 raise Exception(f'Dataset in {args.dataset} was not found')
             dset_test = DatasetTrajnetPP(data_set + 'test/', obs_len=obs_seq_len, pred_len=pred_seq_len,
                                          norm_lap_matr=True,
-                                         consider_partial_trajectories=not args.no_partial_trajectories)
+                                         consider_partial_trajectories=args.use_partial_trajectories)
         else:
             data_set = './datasets/'+args.dataset+'/'
 
@@ -204,7 +204,7 @@ for feta in range(len(paths)):
         loader_test = DataLoader(
                 dset_test,
                 batch_size=1,#This is irrelative to the args batch size parameter
-                shuffle =False,
+                shuffle=False,
                 num_workers=0)
 
 
