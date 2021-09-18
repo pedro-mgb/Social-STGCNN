@@ -35,14 +35,19 @@ parser.add_argument('--num_epochs', type=int, default=250,
                     help='number of epochs')
 parser.add_argument('--clip_grad', type=float, default=None,
                     help='gadient clipping')
+parser.add_argument('--optim', type=str, default='sgd', choices=['adam', 'sgd'],
+                    help='Optimizer being used to update the network weights')
 parser.add_argument('--lr', type=float, default=0.01,
                     help='learning rate')
+parser.add_argument('--weight_decay', type=float, default=0,
+                    help='weight decay for L2 regularization. Only with ADAM optimizer: --optim adam')
 parser.add_argument('--lr_sh_rate', type=int, default=150,
                     help='number of steps to drop the lr')
 parser.add_argument('--use_lrschd', action="store_true", default=False,
                     help='Use lr rate scheduler')
 parser.add_argument('--tag', default='tag',
                     help='personal tag for the model ')
+parser.add_argument('--no_cuda', action='store_true', help='Do not use GPU / CUDA. Instead, do operations on CPU')
 
 args = parser.parse_args()
 
@@ -55,6 +60,7 @@ def graph_loss(V_pred, V_target):
     return bivariate_loss(V_pred, V_target)
 
 
+use_cuda = not args.no_cuda
 # Data prep
 if 'trajnetpp' in args.dataset:
     trajnetpp = True
@@ -112,11 +118,15 @@ else:
 
 model = social_stgcnn(n_stgcnn=args.n_stgcnn, n_txpcnn=args.n_txpcnn,
                       output_feat=args.output_size, seq_len=args.obs_seq_len,
-                      kernel_size=args.kernel_size, pred_seq_len=args.pred_seq_len).cuda()
+                      kernel_size=args.kernel_size, pred_seq_len=args.pred_seq_len)
+if use_cuda:
+    model = model.cuda()
 
 # Training settings
-
-optimizer = optim.SGD(model.parameters(), lr=args.lr)
+if args.optim == 'sgd':
+    optimizer = optim.SGD(model.parameters(), lr=args.lr)
+else:  # ADAM optimizer, with option of employing weight decay regularization
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
 if args.use_lrschd:
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=args.lr_sh_rate, gamma=0.2)
@@ -138,7 +148,7 @@ constant_metrics = {'min_val_epoch': -1, 'min_val_loss': 9999999999999999}
 
 
 def train(epoch):
-    global metrics, loader_train, primary_ped_only, trajnetpp
+    global metrics, loader_train, primary_ped_only, trajnetpp, use_cuda
     model.train()
     loss_batch = 0
     batch_count = 0
@@ -150,7 +160,8 @@ def train(epoch):
         batch_count += 1
 
         # Get data
-        batch = [tensor.cuda() for tensor in batch]
+        if use_cuda:
+            batch = [tensor.cuda() for tensor in batch]
         obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped, \
         loss_mask, V_obs, A_obs, V_tr, A_tr = batch
 
@@ -205,7 +216,8 @@ def vald(epoch):
         batch_count += 1
 
         # Get data
-        batch = [tensor.cuda() for tensor in batch]
+        if use_cuda:
+            batch = [tensor.cuda() for tensor in batch]
         obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped, \
         loss_mask, V_obs, A_obs, V_tr, A_tr = batch
 

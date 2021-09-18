@@ -22,9 +22,10 @@ parser.add_argument('--data_location', default=None, type=str,
 parser.add_argument('--model_tag', default=None, type=str,
                     help='Path to the model evaluation. By default will evaluate the ETH/UCY models. Should be '
                          'mandatory sent when using --trajnetpp flag.')
+parser.add_argument('--no_cuda', action='store_true', help='Do not use GPU / CUDA. Instead, do operations on CPU')
 
 def test(KSTEPS=20):
-    global loader_test,model,trajnetpp
+    global loader_test,model,trajnetpp,use_cuda
     model.eval()
     ade_bigls = []
     fde_bigls = []
@@ -33,7 +34,8 @@ def test(KSTEPS=20):
     for batch in loader_test: 
         step+=1
         #Get data
-        batch = [tensor.cuda() for tensor in batch]
+        if use_cuda:
+            batch = [tensor.cuda() for tensor in batch]
         obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped,\
          loss_mask,V_obs,A_obs,V_tr,A_tr = batch
 
@@ -51,7 +53,8 @@ def test(KSTEPS=20):
         # torch.Size([12, 2, 5])
         V_pred = V_pred.permute(0,2,3,1)
         # torch.Size([1, 12, 2, 5])>>seq,node,feat
-        # V_pred= torch.rand_like(V_tr).cuda()
+        # if use_cuda:
+        #   V_pred= torch.rand_like(V_tr).cuda()
 
 
         V_tr = V_tr.squeeze()
@@ -67,8 +70,9 @@ def test(KSTEPS=20):
         sx = torch.exp(V_pred[:,:,2]) #sx
         sy = torch.exp(V_pred[:,:,3]) #sy
         corr = torch.tanh(V_pred[:,:,4]) #corr
-        
-        cov = torch.zeros(V_pred.shape[0],V_pred.shape[1],2,2).cuda()
+
+        if use_cuda:
+            cov = torch.zeros(V_pred.shape[0],V_pred.shape[1],2,2).cuda()
         cov[:,:,0,0]= sx*sx
         cov[:,:,0,1]= corr*sx*sy
         cov[:,:,1,0]= corr*sx*sy
@@ -140,6 +144,8 @@ def test(KSTEPS=20):
 
 args = parser.parse_args()
 trajnetpp = args.trajnetpp
+use_cuda = not args.no_cuda
+use_partial_trajectories = args.use_partial_trajectories
 
 if args.trajnetpp:
     if args.model_tag is None:
@@ -177,8 +183,6 @@ for feta in range(len(paths)):
             cm = pickle.load(f)
         print("Stats:",cm)
 
-
-
         #Data prep     
         obs_seq_len = args.obs_seq_len
         pred_seq_len = args.pred_seq_len
@@ -191,7 +195,7 @@ for feta in range(len(paths)):
                 raise Exception(f'Dataset in {args.dataset} was not found')
             dset_test = DatasetTrajnetPP(data_set + 'test/', obs_len=obs_seq_len, pred_len=pred_seq_len,
                                          norm_lap_matr=True,
-                                         consider_partial_trajectories=args.use_partial_trajectories)
+                                         consider_partial_trajectories=use_partial_trajectories)
         else:
             data_set = './datasets/'+args.dataset+'/'
 
@@ -212,8 +216,10 @@ for feta in range(len(paths)):
         #Defining the model 
         model = social_stgcnn(n_stgcnn =args.n_stgcnn,n_txpcnn=args.n_txpcnn,
         output_feat=args.output_size,seq_len=args.obs_seq_len,
-        kernel_size=args.kernel_size,pred_seq_len=args.pred_seq_len).cuda()
-        model.load_state_dict(torch.load(model_path))
+        kernel_size=args.kernel_size,pred_seq_len=args.pred_seq_len)
+        if use_cuda:
+            model = model.cuda()
+        model.load_state_dict(torch.load(model_path, map_location=torch.device('cuda:0' if use_cuda else 'cpu')))
 
 
         ade_ =999999
