@@ -16,6 +16,7 @@ from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from numpy import linalg as LA
 import networkx as nx
+from scipy.stats import gaussian_kde
 
 
 def ade(predAll,targetAll,count_):
@@ -111,4 +112,44 @@ def bivariate_loss(V_pred,V_trgt):
     result = torch.mean(result)
     
     return result
-   
+
+
+def kde_nll(pred, gt, log_pdf_lower_bound=-20, mode='raw', ignore_if_fail=False):
+    """
+    Credits: https://github.com/vita-epfl/trajnetplusplustools and https://github.com/StanfordASL/Trajectron.
+    """
+    pred_len = gt.shape[0]
+    nll_all_ped_list = []
+    for p in range(gt.shape[1]):
+        ll = 0.0
+        same_pred = 0
+        # all predictions are the same, which can happen for constant velocity with 0 speed
+        for timestep in range(gt.shape[0]):
+            curr_gt, curr_pred = gt[timestep, p], pred[timestep, :, p]
+            if np.all(curr_pred[1:] == curr_pred[:-1]):
+                same_pred += 1
+                continue  # Identical prediction at particular time-step, skip
+            try:
+                scipy_kde = gaussian_kde(curr_pred.T)
+                # We need [0] because it's a (1,)-shaped tensor
+                log_pdf = np.clip(scipy_kde.logpdf(curr_gt.T), a_min=log_pdf_lower_bound, a_max=None)[0]
+                if np.isnan(log_pdf) or np.isinf(log_pdf) or log_pdf > 100:
+                    same_pred += 1  # Difficulties in computing Gaussian_KDE
+                    continue
+                ll += log_pdf
+            except Exception as e:
+                same_pred += 1  # Difficulties in computing Gaussian_KDE
+
+        if same_pred == pred_len:
+            if ignore_if_fail:
+                continue  # simply not being considered for computation
+            else:
+                raise Exception('Failed to compute KDE-NLL for one or more trajectory. To ignore the trajectories that '
+                                f'result in computation failure, supply --ignore_if_kde_nll_fails.{os.linesep}WARNING! '
+                                'This will mean that some samples will be ignored, which may be unfair when comparing '
+                                'with other methods whose samples do not result in error.')
+
+        ll = ll / (pred_len - same_pred)
+        nll_all_ped_list.append(ll)
+    nll_all_ped = np.array(nll_all_ped_list)
+    return nll_all_ped if mode == 'raw' else np.sum(nll_all_ped)
